@@ -1,0 +1,21 @@
+{
+	"name": "amazon-bot",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"start": "node src/main.ts",
+		"test": "vp test",
+		"build": "vp pack",
+		"probe": "node scripts/probe.ts"
+	},
+	"dependencies": {
+		"playwright-core": "^1.64.0"
+	},
+	"devDependencies": {
+		"@types/node": "26.6.5",
+		"oxlint-tsgolint": "7.0.2004",
+		"typescript": "^7.0.2",
+		"vite-plus": "catalog:"
+	}
+}
