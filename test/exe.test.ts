@@ -34,12 +34,18 @@ afterAll(() => {
 
 // Each run gets its own LOCALAPPDATA, so the user's settings and Edge profile
 // are never touched and runs cannot see each other's saved answers.
-function appData(settings?: object): { env: NodeJS.ProcessEnv; settingsFile: string } {
+function appData(settings?: object): {
+	env: NodeJS.ProcessEnv;
+	settingsFile: string;
+	profileDir: string;
+} {
 	const localAppData = join(dir, `appdata-${++runs}`);
-	const settingsFile = join(localAppData, "amazon-bot", "settings.json");
-	mkdirSync(join(localAppData, "amazon-bot"), { recursive: true });
+	const home = join(localAppData, "amazon-bot");
+	const settingsFile = join(home, "settings.json");
+	const profileDir = join(home, "profile");
+	mkdirSync(home, { recursive: true });
 	if (settings) writeFileSync(settingsFile, JSON.stringify(settings));
-	return { env: { ...process.env, LOCALAPPDATA: localAppData }, settingsFile };
+	return { env: { ...process.env, LOCALAPPDATA: localAppData }, settingsFile, profileDir };
 }
 
 function run(args: string[]) {
@@ -80,6 +86,9 @@ describe("arguments", () => {
 		expect(help).toContain("CAD on amazon.ca");
 		expect(help).toContain(DEFAULT_URL);
 		expect(help).toContain("default: 730 for the default --url");
+		expect(help).toContain("Saved answers show as [saved: ...].");
+		expect(help).toContain("Built-in values show as [default: ...].");
+		expect(help).toContain("Type reset at any question to clear saved answers and exit.");
 	});
 
 	test.each([
@@ -129,7 +138,7 @@ describe("arguments", () => {
 
 describe("prompts in a terminal", () => {
 	function openTerminal(args: string[], settings?: object) {
-		const { env, settingsFile } = appData(settings);
+		const { env, settingsFile, profileDir } = appData(settings);
 		const term: IPty = spawnPty(exe, args, { env, cols: 200, rows: 50 });
 		let output = "";
 		term.onData((data) => (output += data));
@@ -138,7 +147,7 @@ describe("prompts in a terminal", () => {
 			killTree(term.pid);
 			term.kill();
 		};
-		return { term, read, close, settingsFile };
+		return { term, read, close, settingsFile, profileDir };
 	}
 
 	test("asks only for settings not passed as flags, and saves only typed answers", async () => {
@@ -156,18 +165,17 @@ describe("prompts in a terminal", () => {
 		expect(read()).not.toContain("Really buy it");
 		expect(read()).toContain("Test run: it will stop before paying.");
 		expect(JSON.parse(readFileSync(settingsFile, "utf8"))).toEqual({
-			placeOrder: false,
 			maxPrice: 7,
 		});
 	});
 
 	test("on a first run, Enter accepts the default product and price", async () => {
-		const { term, read, close } = openTerminal([]);
+		const { term, read, close, settingsFile } = openTerminal([]);
 		try {
 			for (const prompt of [
-				`Amazon product link [${DEFAULT_URL}]`,
-				"in CAD (number only) [730]",
-				"[no, test run]",
+				`Amazon product link [default: ${DEFAULT_URL}]`,
+				"in CAD (number only) [default: 730]",
+				"[default: no, test run]",
 			]) {
 				await waitFor(read, new RegExp(RegExp.escape(prompt)), 15_000);
 				term.write("\r");
@@ -176,8 +184,10 @@ describe("prompts in a terminal", () => {
 		} finally {
 			close();
 		}
+		expect(read()).toContain("Type reset at any question to clear saved answers and exit.");
 		expect(read()).toContain("Buying at 730 CAD or less.");
 		expect(read()).toContain("Test run: it will stop before paying.");
+		expect(() => readFileSync(settingsFile)).toThrow();
 	});
 
 	test("--timeout also ends a wait for a person to sign in", async () => {
@@ -186,7 +196,7 @@ describe("prompts in a terminal", () => {
 		try {
 			await waitFor(read, /Amazon product link/, 15_000);
 			term.write("\r");
-			await waitFor(read, /\(number only\) \[730\]/, 15_000);
+			await waitFor(read, /\(number only\) \[default: 730\]/, 15_000);
 			term.write("\r");
 			// A fresh profile is signed out, so the bot waits for a sign-in nobody
 			// does, and --timeout has to end that wait.
@@ -201,12 +211,12 @@ describe("prompts in a terminal", () => {
 
 	test("with no flags, asks every question and Enter keeps the saved answers", async () => {
 		const saved = { url: URL_CA, maxPrice: 5, placeOrder: false };
-		const { term, read, close } = openTerminal([], saved);
+		const { term, read, close, settingsFile } = openTerminal([], saved);
 		try {
 			for (const prompt of [
-				`Amazon product link [${URL_CA}]`,
-				"in CAD (number only) [5]",
-				"[no, test run]",
+				`Amazon product link [saved: ${URL_CA}]`,
+				"in CAD (number only) [saved: 5]",
+				"[saved: no, test run]",
 			]) {
 				await waitFor(read, new RegExp(RegExp.escape(prompt)), 15_000);
 				term.write("\r");
@@ -216,6 +226,96 @@ describe("prompts in a terminal", () => {
 			close();
 		}
 		expect(read()).toContain("Test run: it will stop before paying.");
+		expect(JSON.parse(readFileSync(settingsFile, "utf8"))).toEqual(saved);
+	});
+
+	test("reset at the saved real-order prompt clears answers but keeps the profile", async () => {
+		const saved = { url: URL_CA, maxPrice: 5, placeOrder: true };
+		const { term, read, close, settingsFile, profileDir } = openTerminal([], saved);
+		mkdirSync(profileDir, { recursive: true });
+		const marker = join(profileDir, "keep-me.txt");
+		writeFileSync(marker, "signed-in profile");
+		const exitCode = new Promise<number>((resolve) =>
+			term.onExit((event) => resolve(event.exitCode)),
+		);
+		try {
+			for (const prompt of [
+				`Amazon product link [saved: ${URL_CA}]`,
+				"in CAD (number only) [saved: 5]",
+			]) {
+				await waitFor(read, new RegExp(RegExp.escape(prompt)), 15_000);
+				term.write("\r");
+			}
+			await waitFor(read, /\[saved: YES, PLACE A REAL ORDER\]/, 15_000);
+			term.write("ReSeT\r");
+			await waitFor(
+				read,
+				/Saved answers were cleared\. Run again to use the built-in defaults\. Your Amazon sign-in profile remains\./,
+				15_000,
+			);
+			await waitFor(read, /Press Enter to close\./, 15_000);
+			term.write("\r");
+			expect(await exitCode).toBe(0);
+		} finally {
+			close();
+		}
+		expect(() => readFileSync(settingsFile)).toThrow();
+		expect(readFileSync(marker, "utf8")).toBe("signed-in profile");
+		expect(read()).not.toContain("Opening Edge");
+		expect(read()).toContain("Press Enter to close.");
+	});
+
+	test("reset exits successfully when no settings file exists", async () => {
+		const { term, read, close, settingsFile } = openTerminal([]);
+		const exitCode = new Promise<number>((resolve) =>
+			term.onExit((event) => resolve(event.exitCode)),
+		);
+		try {
+			await waitFor(
+				read,
+				new RegExp(RegExp.escape(`Amazon product link [default: ${DEFAULT_URL}]`)),
+				15_000,
+			);
+			term.write("reset\r");
+			await waitFor(
+				read,
+				/Saved answers were cleared\. Run again to use the built-in defaults\. Your Amazon sign-in profile remains\./,
+				15_000,
+			);
+			await waitFor(read, /Press Enter to close\./, 15_000);
+			term.write("\r");
+			expect(await exitCode).toBe(0);
+		} finally {
+			close();
+		}
+		expect(() => readFileSync(settingsFile)).toThrow();
+		expect(read()).not.toContain("Opening Edge");
+	});
+
+	test("an invalid saved real-order answer is labeled as a default", async () => {
+		const { term, read, close, settingsFile } = openTerminal(
+			["--url", URL_CA, "--max-price", "5"],
+			{ placeOrder: "yes" },
+		);
+		const exitCode = new Promise<number>((resolve) =>
+			term.onExit((event) => resolve(event.exitCode)),
+		);
+		try {
+			await waitFor(read, /\[default: no, test run\]/, 15_000);
+			term.write("reset\r");
+			await waitFor(
+				read,
+				/Saved answers were cleared\. Run again to use the built-in defaults\. Your Amazon sign-in profile remains\./,
+				15_000,
+			);
+			await waitFor(read, /Press Enter to close\./, 15_000);
+			term.write("\r");
+			expect(await exitCode).toBe(0);
+		} finally {
+			close();
+		}
+		expect(() => readFileSync(settingsFile)).toThrow();
+		expect(read()).not.toContain("Opening Edge");
 	});
 
 	test.each([

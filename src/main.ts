@@ -1,6 +1,6 @@
 import { Command, InvalidArgumentError } from "commander";
 import { chromium, type BrowserContext, type Page } from "playwright-core";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -19,6 +19,8 @@ import {
 } from "./amazon.ts";
 
 type Settings = { url: string; maxPrice: number; placeOrder: boolean };
+type SavedSettings = Partial<Settings>;
+type SettingSource = "saved" | "default";
 // A setting left undefined was not passed on the command line.
 type Flags = Partial<Settings> & { input: boolean; timeoutMs?: number };
 type Parsed<T> = { value: T } | { error: string };
@@ -44,8 +46,11 @@ const EXAMPLES = [
 	`  --max-price  ${DEFAULT_MAX_PRICE} (CAD), about 3% above Nintendo's CAD 709.99, and only`,
 	"               for the default --url; any other --url needs its own price",
 	"",
-	"Settings you leave out are asked for, with your last answers or the defaults",
-	"above in [brackets]. Without a terminal, or with --no-input, the bot never",
+	"Settings you leave out are asked for. Saved answers show as [saved: ...].",
+	"Built-in values show as [default: ...].",
+	"Type reset at any question to clear saved answers and exit.",
+	"Your Amazon sign-in profile remains.",
+	"Without a terminal, or with --no-input, the bot never",
 	"asks: it uses the defaults, and it is a dry run unless you pass --no-dry-run.",
 	"",
 	"Examples:",
@@ -56,6 +61,7 @@ const EXAMPLES = [
 
 class BrowserClosed extends Error {}
 class NoAnswer extends Error {}
+class ResetRequested extends Error {}
 class MissingMaxPrice extends Error {}
 // Amazon needs a person (sign-in, typed captcha), but nobody is there to help.
 class NeedsPerson extends Error {}
@@ -86,23 +92,21 @@ const parsers: { [K in keyof Settings]: (answer: string) => Parsed<Settings[K]> 
 	},
 };
 
-async function loadSettings(): Promise<Partial<Settings>> {
+async function loadSettings(): Promise<SavedSettings> {
 	let saved: unknown;
 	try {
 		saved = JSON.parse(await readFile(SETTINGS_FILE, "utf8"));
 	} catch {
-		return { placeOrder: false };
+		return {};
 	}
-	if (typeof saved !== "object" || saved === null) return { placeOrder: false };
-	return {
-		url: "url" in saved && typeof saved.url === "string" ? saved.url : undefined,
-		maxPrice:
-			"maxPrice" in saved && typeof saved.maxPrice === "number" && saved.maxPrice > 0
-				? saved.maxPrice
-				: undefined,
-		placeOrder:
-			"placeOrder" in saved && typeof saved.placeOrder === "boolean" ? saved.placeOrder : false,
-	};
+	if (typeof saved !== "object" || saved === null) return {};
+	const settings: SavedSettings = {};
+	if ("url" in saved && typeof saved.url === "string") settings.url = saved.url;
+	if ("maxPrice" in saved && typeof saved.maxPrice === "number" && saved.maxPrice > 0)
+		settings.maxPrice = saved.maxPrice;
+	if ("placeOrder" in saved && typeof saved.placeOrder === "boolean")
+		settings.placeOrder = saved.placeOrder;
+	return settings;
 }
 
 function parseFlag<T>(parse: (value: string) => Parsed<T>) {
@@ -179,7 +183,9 @@ async function resolveSettings(flags: Flags, interactive: boolean): Promise<Sett
 async function askSettings(flags: Partial<Settings>): Promise<Settings> {
 	const saved = await loadSettings();
 	const answered: Partial<Settings> = {};
-	console.log("Amazon restock bot. Press Enter to keep the value in [brackets].\n");
+	console.log(
+		"Amazon restock bot. Press Enter to use the value in [brackets]. Type reset at any question to clear saved answers and exit.\n",
+	);
 	// One interface for every question: with pasted input, a fresh interface per
 	// question would drop lines that were already read into the previous one.
 	const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -190,17 +196,21 @@ async function askSettings(flags: Partial<Settings>): Promise<Settings> {
 		fallback: Settings[K] | undefined,
 		show: (value: Settings[K]) => string = String,
 	): Promise<Settings[K]> {
+		const source: SettingSource = saved[key] === undefined ? "default" : "saved";
 		const previous = saved[key] ?? fallback;
 		for (;;) {
-			const hint = previous === undefined ? "" : ` [${show(previous)}]`;
+			const hint = previous === undefined ? "" : ` [${source}: ${show(previous)}]`;
 			process.stdout.write(`${question}${hint}: `);
 			const { value, done } = await lines.next();
 			if (done) throw new NoAnswer();
 			const answer = value.trim();
-			const result: Parsed<Settings[K]> =
-				answer === "" && previous !== undefined ? { value: previous } : parsers[key](answer);
+			if (answer.toLowerCase() === "reset") throw new ResetRequested();
+			const acceptedPrevious = answer === "" && previous !== undefined;
+			const result: Parsed<Settings[K]> = acceptedPrevious
+				? { value: previous }
+				: parsers[key](answer);
 			if ("value" in result) {
-				answered[key] = result.value;
+				if (!acceptedPrevious) answered[key] = result.value;
 				return result.value;
 			}
 			console.log(result.error);
@@ -225,13 +235,13 @@ async function askSettings(flags: Partial<Settings>): Promise<Settings> {
 					"Really buy it? yes = PLACE A REAL ORDER and pay, no = test run that stops before paying",
 					"placeOrder",
 					false,
-					(v) => (v ? "yes, real order" : "no, test run"),
+					(v) => (v ? "YES, PLACE A REAL ORDER" : "no, test run"),
 				)),
 		};
 	} finally {
 		rl.close();
 	}
-	// Flags are one-off; only typed answers become the next run's defaults.
+	// Flags are one-off; only typed answers are saved for the next run.
 	if (Object.keys(answered).length > 0) {
 		await mkdir(HOME, { recursive: true });
 		await writeFile(SETTINGS_FILE, JSON.stringify({ ...saved, ...answered }, null, 2));
@@ -397,7 +407,22 @@ void main(flags, interactive)
 	.then((result) => {
 		process.exitCode = report(result);
 	})
-	.catch((err) => {
+	.catch(async (err) => {
+		if (err instanceof ResetRequested) {
+			try {
+				// ponytail: Another setup can rewrite after reset; add a lock if concurrent resets matter.
+				await rm(SETTINGS_FILE, { force: true });
+				console.log(
+					"\nSaved answers were cleared. Run again to use the built-in defaults. Your Amazon sign-in profile remains.",
+				);
+				process.exitCode = 0;
+			} catch (error) {
+				process.exitCode = 1;
+				console.error("\nCould not clear saved answers.");
+				console.error(error);
+			}
+			return;
+		}
 		process.exitCode = 1;
 		if (err instanceof NeedsPerson) {
 			console.error(`\nerror: ${err.message}`);
