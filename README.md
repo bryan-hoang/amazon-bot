@@ -17,10 +17,14 @@ at or under your price.
 1. Download `amazon-bot.exe`.
 2. Double-click it. Windows may say "Windows protected your PC" because the
    program is not signed. Click **More info**, then **Run anyway**.
-3. Answer the questions:
-   - **Amazon product link**: copy it from the address bar of the product page.
+3. Answer the questions. Press Enter to accept the answer in `[brackets]`.
+   - **Amazon product link**: it starts out as the Nintendo Switch 2 - The
+     Legend of Zelda 40th Anniversary Edition on amazon.ca. For another
+     product, copy the link from the address bar of its page.
    - **Highest price**: the bot never buys above this. This protects you from
-     resellers charging too much.
+     resellers charging too much. For the Zelda edition it starts out at 730
+     CAD, a little above Nintendo's price of CAD 709.99. Another product has no
+     starting price, so type one.
    - **Really buy it?**: type `no` for a test run. A test run goes all the way
      to the "Place your order" button and stops. Nothing is bought.
 4. An Edge window opens. The first time, sign in to Amazon in that window. The
@@ -49,10 +53,14 @@ amazon-bot --url https://www.amazon.ca/dp/B014I8SSD0 --max-price 10 --dry-run
 `--max-price` is in the store's currency: CAD on amazon.ca, USD on
 amazon.com.
 
-Without a terminal, or with `--no-input`, the bot never asks: `--url` and
-`--max-price` are required, and it does a dry run unless you pass
-`--no-dry-run`. It exits with code 0 after an order or a finished dry run, and
-1 otherwise.
+Without a terminal, or with `--no-input`, the bot never asks. It uses the
+defaults listed by `--help`, and it does a dry run unless you pass
+`--no-dry-run`. The default price of 730 CAD applies only to the default
+product, so `--max-price` is required with any other `--url`. The bot exits
+with code 0 after an order or a finished dry run, and 1 otherwise.
+
+The default product and price are `DEFAULT_URL` and `DEFAULT_MAX_PRICE` in
+`src/main.ts`.
 
 ## Building
 

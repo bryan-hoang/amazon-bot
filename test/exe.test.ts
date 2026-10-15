@@ -10,6 +10,8 @@ import packageJson from "../package.json" with { type: "json" };
 
 const root = join(import.meta.dirname, "..");
 const URL_CA = "https://www.amazon.ca/dp/B014I8SSD0";
+const DEFAULT_URL =
+	"https://www.amazon.ca/Nintendo-Switch-Legend-Anniversary-Console/dp/B0F2TP12QL/ref=sr_1_2?sr=8-2";
 let dir: string;
 let exe: string;
 let runs = 0;
@@ -74,15 +76,21 @@ describe("arguments", () => {
 		for (const option of ["--url", "--max-price", "--dry-run", "--no-dry-run", "--no-input"]) {
 			expect(stdout).toContain(option);
 		}
-		expect(stdout.replace(/\s+/g, " ")).toContain("CAD on amazon.ca");
+		const help = stdout.replace(/\s+/g, " ");
+		expect(help).toContain("CAD on amazon.ca");
+		expect(help).toContain(DEFAULT_URL);
+		expect(help).toContain("default: 730 for the default --url");
 	});
 
 	test.each([
 		[["--max-price", "abc"], "Please type a price, for example 49.99"],
 		[["--url", "https://example.com/x"], "That does not look like an Amazon link"],
 		[["--bogus"], "unknown option '--bogus'"],
-		[[], "--url is required when the bot cannot ask questions"],
-		[["--no-input", "--url", URL_CA], "--max-price is required when the bot cannot ask questions"],
+		[["--url", URL_CA], "--max-price is required with a --url other than the default"],
+		[
+			["--no-input", "--url", URL_CA],
+			"--max-price is required with a --url other than the default",
+		],
 	])("%j fails with a message", (args, message) => {
 		const { status, stdout, stderr } = run(args);
 		expect(status).toBe(1);
@@ -90,9 +98,9 @@ describe("arguments", () => {
 		expect(stderr).toContain(message);
 	});
 
-	test("flags alone drive Edge without asking anything", async () => {
+	test("with no flags and no terminal, the defaults drive Edge", async () => {
 		const { env, settingsFile } = appData();
-		const child = spawn(exe, ["--url", URL_CA, "--max-price", "10"], {
+		const child = spawn(exe, [], {
 			env,
 			stdio: ["ignore", "pipe", "pipe"],
 		});
@@ -107,6 +115,8 @@ describe("arguments", () => {
 		} finally {
 			killTree(child.pid!);
 		}
+		expect(stdout).toContain(`Watching ${DEFAULT_URL}`);
+		expect(stdout).toContain("Buying at 730 CAD or less.");
 		expect(stdout).toContain("Test run: it will stop before paying.");
 		expect(stdout).not.toContain("Amazon product link");
 		expect(stderr).toBe("");
@@ -137,7 +147,8 @@ describe("prompts in a terminal", () => {
 		} finally {
 			close();
 		}
-		expect(read()).toContain("Highest price you will pay, in CAD (number only)");
+		// The default price belongs to the default product, so another link has none.
+		expect(read()).toContain("Highest price you will pay, in CAD (number only): ");
 		expect(read()).not.toContain("Amazon product link");
 		expect(read()).not.toContain("Really buy it");
 		expect(read()).toContain("Test run: it will stop before paying.");
@@ -145,6 +156,25 @@ describe("prompts in a terminal", () => {
 			placeOrder: false,
 			maxPrice: 7,
 		});
+	}, 60_000);
+
+	test("on a first run, Enter accepts the default product and price", async () => {
+		const { term, read, close } = openTerminal([]);
+		try {
+			for (const prompt of [
+				`Amazon product link [${DEFAULT_URL}]`,
+				"in CAD (number only) [730]",
+				"[no, test run]",
+			]) {
+				await waitFor(read, new RegExp(RegExp.escape(prompt)), 15_000);
+				term.write("\r");
+			}
+			await waitFor(read, /Opening Edge/, 15_000);
+		} finally {
+			close();
+		}
+		expect(read()).toContain("Buying at 730 CAD or less.");
+		expect(read()).toContain("Test run: it will stop before paying.");
 	}, 60_000);
 
 	test("with no flags, asks every question and Enter keeps the saved answers", async () => {

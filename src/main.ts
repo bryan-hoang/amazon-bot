@@ -28,21 +28,34 @@ const SETTINGS_FILE = join(HOME, "settings.json");
 const PROFILE_DIR = join(HOME, "profile");
 const POLL_MS = 15_000;
 const BEEP = "\x07";
+// The product this bot was built to buy: Nintendo Switch 2 – The Legend of
+// Zelda 40th Anniversary Edition. Nintendo of Canada lists it at CAD 709.99;
+// the limit leaves about 3% for Amazon pricing just above that, and stays far
+// below reseller prices.
+const DEFAULT_URL =
+	"https://www.amazon.ca/Nintendo-Switch-Legend-Anniversary-Console/dp/B0F2TP12QL/ref=sr_1_2?sr=8-2";
+const DEFAULT_MAX_PRICE = 730;
 const EXAMPLES = [
 	"",
-	"Settings you leave out are asked for, with your last answers as defaults.",
-	"Without a terminal, or with --no-input, --url and --max-price are required and",
-	"the run is a dry run unless you pass --no-dry-run.",
+	"Defaults:",
+	`  --url        ${DEFAULT_URL}`,
+	"               (Nintendo Switch 2 - The Legend of Zelda 40th Anniversary Edition)",
+	`  --max-price  ${DEFAULT_MAX_PRICE} (CAD), about 3% above Nintendo's CAD 709.99, and only`,
+	"               for the default --url; any other --url needs its own price",
+	"",
+	"Settings you leave out are asked for, with your last answers or the defaults",
+	"above in [brackets]. Without a terminal, or with --no-input, the bot never",
+	"asks: it uses the defaults, and it is a dry run unless you pass --no-dry-run.",
 	"",
 	"Examples:",
 	"  $ amazon-bot",
-	"  $ amazon-bot --url https://www.amazon.ca/dp/B014I8SSD0 --max-price 10 --dry-run",
+	"  $ amazon-bot --no-input --dry-run",
 	"  $ amazon-bot --url https://www.amazon.ca/dp/B014I8SSD0 --max-price 10 --no-dry-run",
 ].join("\n");
 
 class BrowserClosed extends Error {}
 class NoAnswer extends Error {}
-class MissingFlag extends Error {}
+class MissingMaxPrice extends Error {}
 let context: BrowserContext | undefined;
 
 const parsers: { [K in keyof Settings]: (answer: string) => Parsed<Settings[K]> } = {
@@ -102,15 +115,19 @@ function readFlags(): Flags {
 		.description(
 			"Watch an Amazon product page and buy it when it is back in stock at or under your price.",
 		)
-		.option("--url <url>", "Amazon product page link", parseFlag(parsers.url))
+		.option(
+			"--url <url>",
+			"Amazon product page link (default: the Switch 2 Zelda edition below)",
+			parseFlag(parsers.url),
+		)
 		.option(
 			"--max-price <price>",
-			"highest price you will pay, in the store's currency (CAD on amazon.ca)",
+			`highest price you will pay, in the store's currency (CAD on amazon.ca) (default: ${DEFAULT_MAX_PRICE} for the default --url)`,
 			parseFlag(parsers.maxPrice),
 		)
-		.option("-n, --dry-run", "stop at the place-order button; nothing is bought")
+		.option("-n, --dry-run", "stop at the place-order button; nothing is bought (default)")
 		.option("--no-dry-run", "place a real order and pay")
-		.option("--no-input", "never ask questions; fail if a required setting is missing")
+		.option("--no-input", "never ask questions; use flags and defaults only")
 		.version(packageJson.version)
 		.addHelpText("after", EXAMPLES)
 		.showHelpAfterError("(run amazon-bot --help for usage)")
@@ -129,12 +146,19 @@ function readFlags(): Flags {
 	};
 }
 
+// The default limit was chosen for the default product; reusing it for another
+// product would be a guess with the user's money.
+function defaultMaxPrice(url: string): number | undefined {
+	return url === DEFAULT_URL ? DEFAULT_MAX_PRICE : undefined;
+}
+
 async function resolveSettings(flags: Flags, interactive: boolean): Promise<Settings> {
 	if (interactive) return askSettings(flags);
-	if (flags.url === undefined) throw new MissingFlag("--url");
-	if (flags.maxPrice === undefined) throw new MissingFlag("--max-price");
+	const url = flags.url ?? DEFAULT_URL;
+	const maxPrice = flags.maxPrice ?? defaultMaxPrice(url);
+	if (maxPrice === undefined) throw new MissingMaxPrice();
 	// Spending money must be asked for explicitly, never inherited from a saved answer.
-	return { url: flags.url, maxPrice: flags.maxPrice, placeOrder: flags.placeOrder ?? false };
+	return { url, maxPrice, placeOrder: flags.placeOrder ?? false };
 }
 
 async function askSettings(flags: Partial<Settings>): Promise<Settings> {
@@ -148,9 +172,10 @@ async function askSettings(flags: Partial<Settings>): Promise<Settings> {
 	async function ask<K extends keyof Settings>(
 		question: string,
 		key: K,
+		fallback: Settings[K] | undefined,
 		show: (value: Settings[K]) => string = String,
 	): Promise<Settings[K]> {
-		const previous = saved[key];
+		const previous = saved[key] ?? fallback;
 		for (;;) {
 			const hint = previous === undefined ? "" : ` [${show(previous)}]`;
 			process.stdout.write(`${question}${hint}: `);
@@ -168,18 +193,23 @@ async function askSettings(flags: Partial<Settings>): Promise<Settings> {
 	}
 	let settings: Settings;
 	try {
-		const url = flags.url ?? (await ask("Amazon product link", "url"));
+		const url = flags.url ?? (await ask("Amazon product link", "url", DEFAULT_URL));
 		const currency = currencyFor(url) ?? "the currency the product page shows";
 		settings = {
 			url,
 			maxPrice:
 				flags.maxPrice ??
-				(await ask(`Highest price you will pay, in ${currency} (number only)`, "maxPrice")),
+				(await ask(
+					`Highest price you will pay, in ${currency} (number only)`,
+					"maxPrice",
+					defaultMaxPrice(url),
+				)),
 			placeOrder:
 				flags.placeOrder ??
 				(await ask(
 					"Really buy it? yes = PLACE A REAL ORDER and pay, no = test run that stops before paying",
 					"placeOrder",
+					false,
 					(v) => (v ? "yes, real order" : "no, test run"),
 				)),
 		};
@@ -263,6 +293,9 @@ const outcomes: { [K in Outcome["kind"]]: (r: Outcome) => string } = {
 
 async function main(flags: Flags, interactive: boolean): Promise<Outcome> {
 	const settings = await resolveSettings(flags, interactive);
+	const currency = currencyFor(settings.url);
+	console.log(`\nWatching ${settings.url}`);
+	console.log(`Buying at ${settings.maxPrice}${currency ? ` ${currency}` : ""} or less.`);
 	console.log(
 		settings.placeOrder
 			? "\nREAL ORDER mode: it will buy."
@@ -301,9 +334,9 @@ void main(flags, interactive)
 	})
 	.catch((err) => {
 		process.exitCode = 1;
-		if (err instanceof MissingFlag) {
+		if (err instanceof MissingMaxPrice) {
 			console.error(
-				`error: ${err.message} is required when the bot cannot ask questions (no terminal, or --no-input).\n` +
+				"error: --max-price is required with a --url other than the default when the bot cannot ask questions (no terminal, or --no-input).\n" +
 					"(run amazon-bot --help for usage)",
 			);
 		} else if (
