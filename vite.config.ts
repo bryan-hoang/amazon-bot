@@ -12,7 +12,22 @@ export default defineConfig({
 	test: {
 		teardownTimeout: 30_000,
 		projects: [
-			{ test: { name: "unit", include: ["test/*.test.ts"], exclude: ["test/exe.test.ts"] } },
+			{
+				test: {
+					name: "unit",
+					include: ["test/*.test.ts"],
+					exclude: ["test/exe.test.ts", "test/signin.test.ts"],
+				},
+			},
+			// Drives headless Edge against local stand-in pages; needs Edge, no network.
+			{
+				test: {
+					name: "browser",
+					include: ["test/signin.test.ts"],
+					testTimeout: 60_000,
+					hookTimeout: 60_000,
+				},
+			},
 			{
 				// Builds the exe and launches Edge, so it is too slow for every commit.
 				// Every test and hook has a deadline, so a stuck Edge fails the run

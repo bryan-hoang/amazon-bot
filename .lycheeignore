@@ -1,2 +1,4 @@
 # A fake lookalike host that the currency unit test must reject.
 notamazon\.ca
+# Local stand-in servers that tests start on a random port.
+127\.0\.0\.1

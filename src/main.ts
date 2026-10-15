@@ -22,9 +22,7 @@ type Settings = { url: string; maxPrice: number; placeOrder: boolean };
 // A setting left undefined was not passed on the command line.
 type Flags = Partial<Settings> & { input: boolean; timeoutMs?: number };
 type Parsed<T> = { value: T } | { error: string };
-type Outcome =
-	| (Exclude<CheckoutResult, { kind: "checkout-not-found" }> & { price: number })
-	| { kind: "timed-out"; afterMs: number };
+type Outcome = (CheckoutResult & { price: number }) | { kind: "timed-out"; afterMs: number };
 
 const HOME = join(process.env.LOCALAPPDATA ?? process.cwd(), "amazon-bot");
 const SETTINGS_FILE = join(HOME, "settings.json");
@@ -289,7 +287,7 @@ async function watch(
 						page,
 						() =>
 							console.log(
-								`${BEEP}Please sign in to Amazon in the Edge window. The bot waits for you.`,
+								`${BEEP}Please sign in to Amazon in the Edge window, with a password, passkey, or code, whichever Amazon asks for. The bot waits for you and carries on once Amazon shows you signed in.`,
 							),
 						humanWaitMs(),
 					);
@@ -307,10 +305,6 @@ async function watch(
 				case "buy": {
 					status(`Price is ${verdict.price}. Clicking Buy Now!`);
 					const result = await checkout(page, placeOrder);
-					if (result.kind === "checkout-not-found") {
-						waitMessage = "Clicked Buy Now but the checkout page did not show up.";
-						break;
-					}
 					return { ...result, price: verdict.price };
 				}
 			}
@@ -337,6 +331,9 @@ function report(result: Outcome): number {
 				`\n${BEEP}Order placed at ${result.price}! Check your email or Amazon orders for the confirmation.`,
 			);
 			return 0;
+		case "checkout-not-found":
+			console.log("\nCheckout needs your attention. No order was placed; check the Edge window.");
+			return 1;
 		case "test-stopped":
 			console.log(
 				`\nTest run worked: it reached the "Place your order" button at ${result.price} and stopped. Nothing was bought.`,

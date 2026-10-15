@@ -39,6 +39,7 @@ const SEL = {
 	],
 	turboFrame: "#turbo-checkout-iframe",
 	turboButton: "#turbo-checkout-pyo-button",
+	selectedAddressRadio: 'input[type="radio"]:checked',
 	placeOrder:
 		'#placeOrder, input[name="placeYourOrder1"], #submitOrderButtonId input, #bottomSubmitOrderButtonId input',
 };
@@ -120,20 +121,57 @@ export async function handleCaptcha(
 	await form.waitFor({ state: "detached", timeout: waitMs });
 }
 
+const SIGN_IN_POLL_MS = 1_000;
+
+// Amazon changes its sign-in paths (/ap/signin, /ax/claim/..., passkey, one-time
+// code, account checks). Completion is a signed-in account link, the signal the
+// watch loop already checks, not a URL change. The page is never reloaded here,
+// so a sign-in in progress is never cut off. waitMs bounds the wait; 0 waits
+// without a deadline.
 export async function signIn(page: Page, tellUser: () => void, waitMs: number): Promise<void> {
 	await page.locator(SEL.account).first().click();
-	await page.waitForURL((url) => url.pathname.includes("/ap/"));
 	tellUser();
-	await page.waitForURL((url) => !url.pathname.includes("/ap/"), { timeout: waitMs });
+	const deadline = waitMs === 0 ? Infinity : Date.now() + waitMs;
+	// A snapshot fails while a page is loading; that is not signed in yet.
+	while (
+		!(await readSnapshot(page).then(
+			(s) => s.signedIn,
+			() => false,
+		))
+	) {
+		if (Date.now() >= deadline) throw new Error("Timed out waiting for the sign-in.");
+		await page.waitForTimeout(SIGN_IN_POLL_MS);
+	}
 }
 
-export async function checkout(page: Page, placeOrder: boolean): Promise<CheckoutResult> {
+export async function checkout(
+	page: Page,
+	placeOrder: boolean,
+	timeoutMs = CHECKOUT_TIMEOUT,
+): Promise<CheckoutResult> {
 	await page.locator(SEL.buyNow).click();
 	const turbo = page.frameLocator(SEL.turboFrame).locator(SEL.turboButton);
 	const full = page.locator(SEL.placeOrder).filter({ visible: true }).first();
-	const button = await Promise.any(
-		[turbo, full].map((b) => b.waitFor({ timeout: CHECKOUT_TIMEOUT }).then(() => b)),
-	).catch(() => null);
+	const address = page
+		.getByRole("button", { name: "Deliver to this address", exact: true })
+		.filter({ visible: true })
+		.first();
+	const waitForCheckout = () =>
+		Promise.any(
+			[turbo, full].map((button) => button.waitFor({ timeout: timeoutMs }).then(() => button)),
+		).catch(() => null);
+	const found = await Promise.any([
+		turbo.waitFor({ timeout: timeoutMs }).then(() => ({ button: turbo })),
+		full.waitFor({ timeout: timeoutMs }).then(() => ({ button: full })),
+		address.waitFor({ timeout: timeoutMs }).then(() => ({ address })),
+	]).catch(() => null);
+	let button = found !== null && "button" in found ? found.button : null;
+	if (found !== null && "address" in found) {
+		if ((await page.locator(SEL.selectedAddressRadio).count()) !== 1)
+			return { kind: "checkout-not-found" };
+		await address.click();
+		button = await waitForCheckout();
+	}
 	if (button === null) return { kind: "checkout-not-found" };
 	if (!placeOrder) return { kind: "test-stopped" };
 	// Any failure from here on may still have submitted the order, so it must

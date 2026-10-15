@@ -27,8 +27,12 @@ at or under your price.
      starting price, so type one.
    - **Really buy it?**: type `no` for a test run. A test run goes all the way
      to the "Place your order" button and stops. Nothing is bought.
-4. An Edge window opens. The first time, sign in to Amazon in that window. The
-   bot remembers you after that.
+4. An Edge window opens. The first time, sign in to Amazon in that window, with
+   a password, passkey, or code, whichever Amazon asks for. Take your time: the
+   bot carries on once Amazon shows you signed in, and remembers you after
+   that.
+   If checkout asks for a delivery address, the bot continues with the address
+   already selected. If none is selected, it stops for you to review Edge.
 5. Leave it running. It checks the page about every 15 seconds.
 
 Do **one test run first**. When it works, run it again and type `yes`.
@@ -104,8 +108,13 @@ Settings and the Edge profile are in `%LOCALAPPDATA%\amazon-bot`.
 
 ### Tests
 
-`test/amazon.test.ts` holds the `unit` tests for price parsing, verdicts, and
-store currencies.
+`test/amazon.test.ts` and `test/duration.test.ts` hold the `unit` tests for
+price parsing, verdicts, store currencies, and `--timeout` values.
+
+`test/signin.test.ts` holds the `browser` tests. They drive headless Edge
+through local stand-in pages that follow Amazon's passkey sign-in route, and
+check that the bot waits until the store shows the account as signed in. They
+need Edge but not the network.
 
 `test/exe.test.ts` holds the `exe` tests. They run `vp pack`, copy the
 executable to a temporary folder, and run it there the way the user does. Each
