@@ -18,6 +18,10 @@ at or under your price.
 2. Double-click it. Windows may say "Windows protected your PC" because the
    program is not signed. Click **More info**, then **Run anyway**.
 3. Answer the questions. Press Enter to accept the answer in `[brackets]`.
+   Type `reset` in any letter case at any question to clear the saved answers
+   and exit before Edge opens. Your Amazon sign-in profile remains. Close other
+   bot windows that are still at setup, since they can save old answers after a
+   reset. A reset does not stop a bot that is already watching.
    - **Amazon product link**: it starts out as the Nintendo Switch 2 - The
      Legend of Zelda 40th Anniversary Edition on amazon.ca. For another
      product, copy the link from the address bar of its page.
@@ -37,7 +41,9 @@ at or under your price.
 
 Do **one test run first**. When it works, run it again and type `yes`.
 
-Next time, press Enter to keep your previous answers (shown in `[brackets]`).
+Next time, press Enter to keep your previous answers, shown as `[saved: ...]`.
+Built-in values appear as `[default: ...]`. Enter keeps either value without
+adding it as a new saved answer. An existing saved answer stays in the file.
 
 Keep your PC awake: change the sleep setting to "Never" while the bot runs. To
 stop the bot, close the Edge window.
