@@ -37,6 +37,20 @@ stop the bot, close the Edge window.
 If Amazon asks you to type some characters, the bot beeps. Type them in the
 Edge window and the bot continues.
 
+## Command Line
+
+You can skip the questions by passing the answers as options. Run
+`amazon-bot --help` for the full list.
+
+```sh
+amazon-bot --url https://www.amazon.ca/dp/B014I8SSD0 --max-price 10 --dry-run
+```
+
+Without a terminal, or with `--no-input`, the bot never asks: `--url` and
+`--max-price` are required, and it does a dry run unless you pass
+`--no-dry-run`. It exits with code 0 after an order or a finished dry run, and
+1 otherwise.
+
 ## Building
 
 Needs Node 26 and `pnpm`. The toolchain is [Vite+](https://viteplus.dev); run it
@@ -46,9 +60,13 @@ as `pnpm exec vp`, or as `vp` with the global CLI.
 vp install
 vp check                      # format, lint, type check
 vp test                       # unit tests
-vp run probe <url>            # check selectors against a live page (headless Edge)
+vp run probe --help           # check selectors against a live page
 vp pack                       # writes dist/amazon-bot.exe
 ```
+
+Both the bot and the probe parse their options with
+[Commander](https://github.com/tj/commander.js), which also writes their
+`--help` text.
 
 `vp pack` builds the executable from the `pack` block in `vite.config.ts`.
 That block also inlines two JSON files playwright-core loads at runtime; if a

@@ -1,8 +1,10 @@
+import { Command, InvalidArgumentError } from "commander";
 import { chromium, type BrowserContext, type Page } from "playwright-core";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { setTimeout as sleep } from "node:timers/promises";
+import packageJson from "../package.json" with { type: "json" };
 import {
 	checkout,
 	dismissOverlays,
@@ -15,6 +17,8 @@ import {
 } from "./amazon.ts";
 
 type Settings = { url: string; maxPrice: number; placeOrder: boolean };
+// A setting left undefined was not passed on the command line.
+type Flags = Partial<Settings> & { input: boolean };
 type Parsed<T> = { value: T } | { error: string };
 type Outcome = Exclude<CheckoutResult, { kind: "checkout-not-found" }> & { price: number };
 
@@ -23,9 +27,21 @@ const SETTINGS_FILE = join(HOME, "settings.json");
 const PROFILE_DIR = join(HOME, "profile");
 const POLL_MS = 15_000;
 const BEEP = "\x07";
+const EXAMPLES = [
+	"",
+	"Settings you leave out are asked for, with your last answers as defaults.",
+	"Without a terminal, or with --no-input, --url and --max-price are required and",
+	"the run is a dry run unless you pass --no-dry-run.",
+	"",
+	"Examples:",
+	"  $ amazon-bot",
+	"  $ amazon-bot --url https://www.amazon.ca/dp/B014I8SSD0 --max-price 10 --dry-run",
+	"  $ amazon-bot --url https://www.amazon.ca/dp/B014I8SSD0 --max-price 10 --no-dry-run",
+].join("\n");
 
 class BrowserClosed extends Error {}
 class NoAnswer extends Error {}
+class MissingFlag extends Error {}
 let context: BrowserContext | undefined;
 
 const parsers: { [K in keyof Settings]: (answer: string) => Parsed<Settings[K]> } = {
@@ -72,9 +88,55 @@ async function loadSettings(): Promise<Partial<Settings>> {
 	};
 }
 
-async function askSettings(): Promise<Settings> {
+function parseFlag<T>(parse: (value: string) => Parsed<T>) {
+	return (value: string): T => {
+		const result = parse(value);
+		if ("error" in result) throw new InvalidArgumentError(result.error);
+		return result.value;
+	};
+}
+
+function readFlags(): Flags {
+	const program = new Command("amazon-bot")
+		.description(
+			"Watch an Amazon product page and buy it when it is back in stock at or under your price.",
+		)
+		.option("--url <url>", "Amazon product page link", parseFlag(parsers.url))
+		.option("--max-price <price>", "highest price you will pay", parseFlag(parsers.maxPrice))
+		.option("-n, --dry-run", "stop at the place-order button; nothing is bought")
+		.option("--no-dry-run", "place a real order and pay")
+		.option("--no-input", "never ask questions; fail if a required setting is missing")
+		.version(packageJson.version)
+		.addHelpText("after", EXAMPLES)
+		.showHelpAfterError("(run amazon-bot --help for usage)")
+		.parse();
+	const options = program.opts<{
+		url?: string;
+		maxPrice?: number;
+		dryRun?: boolean;
+		input: boolean;
+	}>();
+	return {
+		url: options.url,
+		maxPrice: options.maxPrice,
+		placeOrder: options.dryRun === undefined ? undefined : !options.dryRun,
+		input: options.input,
+	};
+}
+
+async function resolveSettings(flags: Flags, interactive: boolean): Promise<Settings> {
+	if (interactive) return askSettings(flags);
+	if (flags.url === undefined) throw new MissingFlag("--url");
+	if (flags.maxPrice === undefined) throw new MissingFlag("--max-price");
+	// Spending money must be asked for explicitly, never inherited from a saved answer.
+	return { url: flags.url, maxPrice: flags.maxPrice, placeOrder: flags.placeOrder ?? false };
+}
+
+async function askSettings(flags: Partial<Settings>): Promise<Settings> {
 	const saved = await loadSettings();
-	// One interface for every question: with piped input, a fresh interface per
+	const answered: Partial<Settings> = {};
+	console.log("Amazon restock bot. Press Enter to keep the value in [brackets].\n");
+	// One interface for every question: with pasted input, a fresh interface per
 	// question would drop lines that were already read into the previous one.
 	const rl = createInterface({ input: process.stdin, output: process.stdout });
 	const lines = rl[Symbol.asyncIterator]();
@@ -90,27 +152,39 @@ async function askSettings(): Promise<Settings> {
 			const { value, done } = await lines.next();
 			if (done) throw new NoAnswer();
 			const answer = value.trim();
-			if (answer === "" && previous !== undefined) return previous;
-			const result = parsers[key](answer);
-			if ("value" in result) return result.value;
+			const result: Parsed<Settings[K]> =
+				answer === "" && previous !== undefined ? { value: previous } : parsers[key](answer);
+			if ("value" in result) {
+				answered[key] = result.value;
+				return result.value;
+			}
 			console.log(result.error);
 		}
 	}
+	let settings: Settings;
 	try {
-		const url = await ask("Amazon product link", "url");
-		const maxPrice = await ask("Highest price you will pay (number only)", "maxPrice");
-		const placeOrder = await ask(
-			"Really buy it? yes = PLACE A REAL ORDER and pay, no = test run that stops before paying",
-			"placeOrder",
-			(v) => (v ? "yes, real order" : "no, test run"),
-		);
-		const settings = { url, maxPrice, placeOrder };
-		await mkdir(HOME, { recursive: true });
-		await writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2));
-		return settings;
+		const url = flags.url ?? (await ask("Amazon product link", "url"));
+		settings = {
+			url,
+			maxPrice:
+				flags.maxPrice ?? (await ask("Highest price you will pay (number only)", "maxPrice")),
+			placeOrder:
+				flags.placeOrder ??
+				(await ask(
+					"Really buy it? yes = PLACE A REAL ORDER and pay, no = test run that stops before paying",
+					"placeOrder",
+					(v) => (v ? "yes, real order" : "no, test run"),
+				)),
+		};
 	} finally {
 		rl.close();
 	}
+	// Flags are one-off; only typed answers become the next run's defaults.
+	if (Object.keys(answered).length > 0) {
+		await mkdir(HOME, { recursive: true });
+		await writeFile(SETTINGS_FILE, JSON.stringify({ ...saved, ...answered }, null, 2));
+	}
+	return settings;
 }
 
 const status = (message: string) => console.log(`[${new Date().toLocaleTimeString()}] ${message}`);
@@ -180,9 +254,8 @@ const outcomes: { [K in Outcome["kind"]]: (r: Outcome) => string } = {
 		`Test run worked: it reached the "Place your order" button at ${r.price} and stopped. Nothing was bought.`,
 };
 
-async function main() {
-	console.log("Amazon restock bot. Press Enter to keep the value in [brackets].\n");
-	const settings = await askSettings();
+async function main(flags: Flags, interactive: boolean): Promise<Outcome> {
+	const settings = await resolveSettings(flags, interactive);
 	console.log(
 		settings.placeOrder
 			? "\nREAL ORDER mode: it will buy."
@@ -196,8 +269,7 @@ async function main() {
 	});
 	const page = context.pages()[0] ?? (await context.newPage());
 	await dismissOverlays(page);
-	const result = await watch(page, settings);
-	console.log("\n" + outcomes[result.kind](result));
+	return watch(page, settings);
 }
 
 async function waitForEnter() {
@@ -209,22 +281,37 @@ async function waitForEnter() {
 	rl.close();
 }
 
+// Commander prints help or usage errors and exits before anything else runs.
+const flags = readFlags();
+// Prompts and the closing pause need a person at a terminal.
+const interactive = flags.input && process.stdin.isTTY === true;
+
 // No top-level await: the exe bundle is CommonJS.
-void main()
+void main(flags, interactive)
+	.then((result) => {
+		console.log("\n" + outcomes[result.kind](result));
+		process.exitCode = result.kind === "unconfirmed" ? 1 : 0;
+	})
 	.catch((err) => {
-		if (
+		process.exitCode = 1;
+		if (err instanceof MissingFlag) {
+			console.error(
+				`error: ${err.message} is required when the bot cannot ask questions (no terminal, or --no-input).\n` +
+					"(run amazon-bot --help for usage)",
+			);
+		} else if (
 			err instanceof BrowserClosed ||
 			(err instanceof Error && err.message.includes("has been closed"))
 		) {
-			console.log("\nThe Edge window was closed, so the bot stopped.");
+			console.error("\nThe Edge window was closed, so the bot stopped.");
 		} else if (err instanceof NoAnswer) {
-			console.log("\nNo answer was typed, so the bot stopped.");
+			console.error("\nNo answer was typed, so the bot stopped.");
 		} else {
-			console.log("\nSomething unexpected went wrong:");
-			console.log(err);
+			console.error("\nSomething unexpected went wrong:");
+			console.error(err);
 		}
 	})
-	.then(waitForEnter)
+	.then(() => (interactive ? waitForEnter() : undefined))
 	.then(() => context?.close())
 	.catch(() => {})
-	.then(() => process.exit(0));
+	.then(() => process.exit());

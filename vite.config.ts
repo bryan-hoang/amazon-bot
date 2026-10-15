@@ -14,7 +14,8 @@ export default defineConfig({
 		// playwright-core reads __dirname at load time, which ESM output lacks.
 		format: "cjs",
 		exe: { fileName: "amazon-bot", outDir: "dist" },
-		deps: { alwaysBundle: ["playwright-core"], neverBundle: [/^chromium-bidi\//] },
+		// The exe can only require Node built-ins, so every dependency is bundled.
+		deps: { alwaysBundle: [/^[^.]/], neverBundle: [/^chromium-bidi\//] },
 		plugins: [
 			{
 				// The exe's require() only loads builtins, so inline the JSON files

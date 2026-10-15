@@ -3,6 +3,7 @@
 		"module": "nodenext",
 		"types": ["node"],
 		"noEmit": true,
+		"resolveJsonModule": true,
 		"allowImportingTsExtensions": true,
 		"erasableSyntaxOnly": true,
 		"verbatimModuleSyntax": true
