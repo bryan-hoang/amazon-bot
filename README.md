@@ -95,3 +95,14 @@ never touched. They check the options and error messages, answer the prompts
 in a real terminal session, and confirm that a run started with flags alone
 drives Edge. They need Edge and take about 15 seconds. They never place an
 order.
+
+### Git Hooks
+
+The [`hk`](https://hk.jdx.dev) tool runs the checks from `hk.pkl`, and
+`mise.toml` pins its version. Run `mise trust`, then `mise install`, then
+`hk install` once per clone.
+
+- Before each commit: `vp check` and the unit tests.
+- Before each push: `vp check` and every test, including the executable tests.
+
+To skip the hooks once, set `HK=0` for that Git command.
