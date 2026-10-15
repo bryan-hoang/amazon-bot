@@ -1,6 +1,14 @@
 import { test } from "vite-plus/test";
 import assert from "node:assert/strict";
-import { parsePrice, judge, type Snapshot } from "../src/amazon.ts";
+import { currencyFor, parsePrice, judge, type Snapshot } from "../src/amazon.ts";
+
+test("currencyFor names the store's currency", () => {
+	assert.equal(currencyFor("https://www.amazon.ca/dp/B014I8SSD0"), "CAD");
+	assert.equal(currencyFor("https://amazon.ca/dp/B014I8SSD0"), "CAD");
+	assert.equal(currencyFor("https://www.amazon.com/dp/B014I8SSD0"), "USD");
+	assert.equal(currencyFor("https://www.amazon.co.uk/dp/B014I8SSD0"), undefined);
+	assert.equal(currencyFor("https://notamazon.ca/dp/B014I8SSD0"), undefined);
+});
 
 test("parsePrice handles locale formats", () => {
 	assert.equal(parsePrice("$1,299.99"), 1299.99);

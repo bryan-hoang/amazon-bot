@@ -46,6 +46,9 @@ You can skip the questions by passing the answers as options. Run
 amazon-bot --url https://www.amazon.ca/dp/B014I8SSD0 --max-price 10 --dry-run
 ```
 
+`--max-price` is in the store's currency: CAD on amazon.ca, USD on
+amazon.com.
+
 Without a terminal, or with `--no-input`, the bot never asks: `--url` and
 `--max-price` are required, and it does a dry run unless you pass
 `--no-dry-run`. It exits with code 0 after an order or a finished dry run, and

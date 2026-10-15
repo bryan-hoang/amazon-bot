@@ -7,6 +7,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import packageJson from "../package.json" with { type: "json" };
 import {
 	checkout,
+	currencyFor,
 	dismissOverlays,
 	handleCaptcha,
 	judge,
@@ -102,7 +103,11 @@ function readFlags(): Flags {
 			"Watch an Amazon product page and buy it when it is back in stock at or under your price.",
 		)
 		.option("--url <url>", "Amazon product page link", parseFlag(parsers.url))
-		.option("--max-price <price>", "highest price you will pay", parseFlag(parsers.maxPrice))
+		.option(
+			"--max-price <price>",
+			"highest price you will pay, in the store's currency (CAD on amazon.ca)",
+			parseFlag(parsers.maxPrice),
+		)
 		.option("-n, --dry-run", "stop at the place-order button; nothing is bought")
 		.option("--no-dry-run", "place a real order and pay")
 		.option("--no-input", "never ask questions; fail if a required setting is missing")
@@ -164,10 +169,12 @@ async function askSettings(flags: Partial<Settings>): Promise<Settings> {
 	let settings: Settings;
 	try {
 		const url = flags.url ?? (await ask("Amazon product link", "url"));
+		const currency = currencyFor(url) ?? "the currency the product page shows";
 		settings = {
 			url,
 			maxPrice:
-				flags.maxPrice ?? (await ask("Highest price you will pay (number only)", "maxPrice")),
+				flags.maxPrice ??
+				(await ask(`Highest price you will pay, in ${currency} (number only)`, "maxPrice")),
 			placeOrder:
 				flags.placeOrder ??
 				(await ask(

@@ -76,6 +76,17 @@ export function parsePrice(text: string | null): number | null {
 	return Number.isFinite(price) ? price : null;
 }
 
+// amazon.com can still show prices in CAD to a Canadian delivery address, so
+// this is the store's own currency, not a guarantee of what the page shows.
+const STORE_CURRENCIES: Record<string, string> = { "amazon.ca": "CAD", "amazon.com": "USD" };
+
+export function currencyFor(url: string): string | undefined {
+	const host = new URL(url).hostname;
+	return Object.entries(STORE_CURRENCIES).find(
+		([store]) => host === store || host.endsWith(`.${store}`),
+	)?.[1];
+}
+
 export function judge(snapshot: Snapshot, maxPrice: number): Verdict {
 	if (snapshot.captcha) return { kind: "captcha" };
 	if (!snapshot.signedIn) return { kind: "signed-out" };
