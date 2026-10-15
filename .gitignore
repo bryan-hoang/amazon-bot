@@ -1,3 +1,5 @@
 node_modules/
 dist/
 .vitest/
+# The global gitignore hides .agents/; this repo commits its verification skill.
+!/.agents/

@@ -22,6 +22,10 @@ run `vp test --project exe`. It builds the executable and runs it from a
 temporary folder with its own `LOCALAPPDATA`. Add a case to `test/exe.test.ts`
 for new command-line or prompt behavior.
 
+Start the executable yourself only through the `verify-amazon-bot` skill's
+`run-exe.ps1`, which kills it and its Edge window after a deadline. Started any
+other way, the bot watches the page until a person stops it.
+
 ## Money
 
 Test with dry runs only: pass `--dry-run`, or answer `no` at the real-order
