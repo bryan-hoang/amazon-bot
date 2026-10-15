@@ -17,17 +17,10 @@ Amazon product page and buys the item at or under a price limit. The
 A passing `node src/main.ts` says nothing about the executable. It is a Node
 single-executable app whose `require` loads only built-in modules, so a
 dependency missing from `pack.deps.alwaysBundle` works under `node` and crashes
-the executable. After changing dependencies, options, or startup code, run
-`vp pack`, copy `dist/amazon-bot.exe` to a folder outside the repo, and run it
-there.
-
-- With piped standard input the bot has no terminal, so it needs `--url` and
-  `--max-price` and asks nothing. Test the prompts in a real terminal session,
-  such as one opened with `pywinpty`.
-- Interactive runs rewrite `%LOCALAPPDATA%\amazon-bot\settings.json`. Back it
-  up before the run and restore it after.
-- After a run, stop the `msedge.exe` processes whose command line contains
-  `amazon-bot\profile`.
+the executable. After changing dependencies, options, prompts, or startup code,
+run `vp test --project exe`. It builds the executable and runs it from a
+temporary folder with its own `LOCALAPPDATA`. Add a case to `test/exe.test.ts`
+for new command-line or prompt behavior.
 
 ## Money
 

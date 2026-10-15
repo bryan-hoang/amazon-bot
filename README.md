@@ -56,13 +56,15 @@ Without a terminal, or with `--no-input`, the bot never asks: `--url` and
 
 ## Building
 
-Needs Node 26 and `pnpm`. The toolchain is [Vite+](https://viteplus.dev); run it
-as `pnpm exec vp`, or as `vp` with the global CLI.
+Needs Windows, Microsoft Edge, Node 26, and `pnpm`. The toolchain is
+[Vite+](https://viteplus.dev); run it as `pnpm exec vp`, or as `vp` with the
+global CLI.
 
 ```sh
 vp install
 vp check                      # format, lint, type check
-vp test                       # unit tests
+vp test                       # all tests: unit, then the built executable
+vp test --project unit        # unit tests only, under a second
 vp run probe --help           # check selectors against a live page
 vp pack                       # writes dist/amazon-bot.exe
 ```
@@ -80,3 +82,16 @@ Amazon changes its pages, run the probe and fix the selectors there. The bot
 never downloads browsers; it always uses the installed Edge.
 
 Settings and the Edge profile are in `%LOCALAPPDATA%\amazon-bot`.
+
+### Tests
+
+`test/amazon.test.ts` holds the `unit` tests for price parsing, verdicts, and
+store currencies.
+
+`test/exe.test.ts` holds the `exe` tests. They run `vp pack`, copy the
+executable to a temporary folder, and run it there the way the user does. Each
+run gets its own `LOCALAPPDATA`, so your saved settings and Edge profile are
+never touched. They check the options and error messages, answer the prompts
+in a real terminal session, and confirm that a run started with flags alone
+drives Edge. They need Edge and take about 15 seconds. They never place an
+order.

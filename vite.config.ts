@@ -9,6 +9,13 @@ export default defineConfig({
 		rules: { "vite-plus/prefer-vite-plus-imports": "error" },
 		options: { typeAware: true, typeCheck: true },
 	},
+	test: {
+		projects: [
+			{ test: { name: "unit", include: ["test/amazon.test.ts"] } },
+			// Builds the exe and launches Edge, so it is too slow for every commit.
+			{ test: { name: "exe", include: ["test/exe.test.ts"] } },
+		],
+	},
 	pack: {
 		entry: ["src/main.ts"],
 		// playwright-core reads __dirname at load time, which ESM output lacks.
