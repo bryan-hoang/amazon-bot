@@ -102,8 +102,14 @@ export async function dismissOverlays(page: Page): Promise<void> {
 	await page.addLocatorHandler(page.locator(SEL.stayOnSite), (stay) => stay.click());
 }
 
-// tellUser is called only when a human has to type the characters.
-export async function handleCaptcha(page: Page, tellUser: () => void): Promise<void> {
+// tellUser is called only when a human has to type the characters; it may
+// throw to refuse the wait. waitMs bounds the wait for that human, and 0 waits
+// for as long as it takes.
+export async function handleCaptcha(
+	page: Page,
+	tellUser: () => void,
+	waitMs: number,
+): Promise<void> {
 	const form = page.locator(SEL.captcha);
 	if ((await form.locator(SEL.captchaInput).count()) === 0) {
 		await form.locator(SEL.captchaSubmit).first().click();
@@ -111,14 +117,14 @@ export async function handleCaptcha(page: Page, tellUser: () => void): Promise<v
 		return;
 	}
 	tellUser();
-	await form.waitFor({ state: "detached", timeout: 0 });
+	await form.waitFor({ state: "detached", timeout: waitMs });
 }
 
-export async function signIn(page: Page, tellUser: () => void): Promise<void> {
+export async function signIn(page: Page, tellUser: () => void, waitMs: number): Promise<void> {
 	await page.locator(SEL.account).first().click();
 	await page.waitForURL((url) => url.pathname.includes("/ap/"));
 	tellUser();
-	await page.waitForURL((url) => !url.pathname.includes("/ap/"), { timeout: 0 });
+	await page.waitForURL((url) => !url.pathname.includes("/ap/"), { timeout: waitMs });
 }
 
 export async function checkout(page: Page, placeOrder: boolean): Promise<CheckoutResult> {

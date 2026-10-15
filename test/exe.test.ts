@@ -26,7 +26,7 @@ beforeAll(() => {
 	dir = mkdtempSync(join(tmpdir(), "amazon-bot-exe-"));
 	exe = join(dir, "amazon-bot.exe");
 	copyFileSync(join(root, "dist/amazon-bot.exe"), exe);
-}, 120_000);
+});
 
 afterAll(() => {
 	rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
@@ -98,30 +98,33 @@ describe("arguments", () => {
 		expect(stderr).toContain(message);
 	});
 
-	test("with no flags and no terminal, the defaults drive Edge", async () => {
+	test("with no terminal, the defaults drive Edge and the run ends on its own", async () => {
 		const { env, settingsFile } = appData();
-		const child = spawn(exe, [], {
-			env,
-			stdio: ["ignore", "pipe", "pipe"],
-		});
+		// A fresh profile is signed out, and nobody is there to sign in, so the bot
+		// must stop by itself. --timeout covers a network that never loads a page.
+		const child = spawn(exe, ["--timeout", "45s"], { env, stdio: ["ignore", "pipe", "pipe"] });
 		let stdout = "";
 		let stderr = "";
 		child.stdout.on("data", (chunk: Buffer) => (stdout += chunk));
 		child.stderr.on("data", (chunk: Buffer) => (stderr += chunk));
-		try {
-			// Any of these means the bot loaded a page in Edge; which one depends on
-			// the network and on Amazon, not on the bot.
-			await waitFor(() => stdout, /Please sign in|check you are human|Page problem/, 60_000);
-		} finally {
-			killTree(child.pid!);
-		}
+		const status = await new Promise<number | null>((resolve) => child.on("exit", resolve)).finally(
+			() => killTree(child.pid!),
+		);
 		expect(stdout).toContain(`Watching ${DEFAULT_URL}`);
 		expect(stdout).toContain("Buying at 730 CAD or less.");
 		expect(stdout).toContain("Test run: it will stop before paying.");
 		expect(stdout).not.toContain("Amazon product link");
-		expect(stderr).toBe("");
+		expect(stdout).not.toContain("The bot waits for you");
+		// Which ending depends on Amazon and the network, not on the bot.
+		const ending =
+			status === 1 && /not signed in|nobody is here/.test(stderr)
+				? "needs a person"
+				: status === 2 && stdout.includes("Stopped after 45s (--timeout)")
+					? "timed out"
+					: `unexpected exit ${status}:\n${stdout}\n${stderr}`;
+		expect(["needs a person", "timed out"]).toContain(ending);
 		expect(() => readFileSync(settingsFile)).toThrow();
-	}, 90_000);
+	});
 });
 
 describe("prompts in a terminal", () => {
@@ -156,7 +159,7 @@ describe("prompts in a terminal", () => {
 			placeOrder: false,
 			maxPrice: 7,
 		});
-	}, 60_000);
+	});
 
 	test("on a first run, Enter accepts the default product and price", async () => {
 		const { term, read, close } = openTerminal([]);
@@ -175,7 +178,26 @@ describe("prompts in a terminal", () => {
 		}
 		expect(read()).toContain("Buying at 730 CAD or less.");
 		expect(read()).toContain("Test run: it will stop before paying.");
-	}, 60_000);
+	});
+
+	test("--timeout also ends a wait for a person to sign in", async () => {
+		const { term, read, close } = openTerminal(["--dry-run", "--timeout", "20s"]);
+		const exitCode = new Promise<number>((resolve) => term.onExit((e) => resolve(e.exitCode)));
+		try {
+			await waitFor(read, /Amazon product link/, 15_000);
+			term.write("\r");
+			await waitFor(read, /\(number only\) \[730\]/, 15_000);
+			term.write("\r");
+			// A fresh profile is signed out, so the bot waits for a sign-in nobody
+			// does, and --timeout has to end that wait.
+			await waitFor(read, /Stopped after 20s \(--timeout\)/, 60_000);
+			// The closing "Press Enter" pause still needs a key in a terminal.
+			term.write("\r");
+			expect(await exitCode).toBe(2);
+		} finally {
+			close();
+		}
+	});
 
 	test("with no flags, asks every question and Enter keeps the saved answers", async () => {
 		const saved = { url: URL_CA, maxPrice: 5, placeOrder: false };
@@ -194,22 +216,18 @@ describe("prompts in a terminal", () => {
 			close();
 		}
 		expect(read()).toContain("Test run: it will stop before paying.");
-	}, 60_000);
+	});
 
 	test.each([
 		["https://www.amazon.com/dp/B014I8SSD0", "in USD (number only)"],
 		["https://www.amazon.co.uk/dp/B014I8SSD0", "in the currency the product page shows"],
-	])(
-		"the max price prompt for %s names its currency",
-		async (url, expected) => {
-			const { read, close } = openTerminal(["--url", url, "--dry-run"]);
-			try {
-				await waitFor(read, /\(number only\)/, 15_000);
-			} finally {
-				close();
-			}
-			expect(read()).toContain(expected);
-		},
-		30_000,
-	);
+	])("the max price prompt for %s names its currency", async (url, expected) => {
+		const { read, close } = openTerminal(["--url", url, "--dry-run"]);
+		try {
+			await waitFor(read, /\(number only\)/, 15_000);
+		} finally {
+			close();
+		}
+		expect(read()).toContain(expected);
+	});
 });

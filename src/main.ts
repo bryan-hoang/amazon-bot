@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { setTimeout as sleep } from "node:timers/promises";
 import packageJson from "../package.json" with { type: "json" };
+import { parseDuration } from "./duration.ts";
 import {
 	checkout,
 	currencyFor,
@@ -19,9 +20,11 @@ import {
 
 type Settings = { url: string; maxPrice: number; placeOrder: boolean };
 // A setting left undefined was not passed on the command line.
-type Flags = Partial<Settings> & { input: boolean };
+type Flags = Partial<Settings> & { input: boolean; timeoutMs?: number };
 type Parsed<T> = { value: T } | { error: string };
-type Outcome = Exclude<CheckoutResult, { kind: "checkout-not-found" }> & { price: number };
+type Outcome =
+	| (Exclude<CheckoutResult, { kind: "checkout-not-found" }> & { price: number })
+	| { kind: "timed-out"; afterMs: number };
 
 const HOME = join(process.env.LOCALAPPDATA ?? process.cwd(), "amazon-bot");
 const SETTINGS_FILE = join(HOME, "settings.json");
@@ -56,6 +59,8 @@ const EXAMPLES = [
 class BrowserClosed extends Error {}
 class NoAnswer extends Error {}
 class MissingMaxPrice extends Error {}
+// Amazon needs a person (sign-in, typed captcha), but nobody is there to help.
+class NeedsPerson extends Error {}
 let context: BrowserContext | undefined;
 
 const parsers: { [K in keyof Settings]: (answer: string) => Parsed<Settings[K]> } = {
@@ -128,6 +133,16 @@ function readFlags(): Flags {
 		.option("-n, --dry-run", "stop at the place-order button; nothing is bought (default)")
 		.option("--no-dry-run", "place a real order and pay")
 		.option("--no-input", "never ask questions; use flags and defaults only")
+		.option(
+			"--timeout <duration>",
+			"stop watching after this long without buying, for example 90s, 30m, or 2h (default: never)",
+			parseFlag((text) => {
+				const ms = parseDuration(text);
+				return ms === null
+					? { error: "Use a number with s, m, or h, for example 90s or 2h." }
+					: { value: ms };
+			}),
+		)
 		.version(packageJson.version)
 		.addHelpText("after", EXAMPLES)
 		.showHelpAfterError("(run amazon-bot --help for usage)")
@@ -137,12 +152,14 @@ function readFlags(): Flags {
 		maxPrice?: number;
 		dryRun?: boolean;
 		input: boolean;
+		timeout?: number;
 	}>();
 	return {
 		url: options.url,
 		maxPrice: options.maxPrice,
 		placeOrder: options.dryRun === undefined ? undefined : !options.dryRun,
 		input: options.input,
+		timeoutMs: options.timeout,
 	};
 }
 
@@ -227,25 +244,54 @@ async function askSettings(flags: Partial<Settings>): Promise<Settings> {
 const status = (message: string) => console.log(`[${new Date().toLocaleTimeString()}] ${message}`);
 const jitter = (ms: number) => Math.round(ms * (0.75 + Math.random() * 0.5));
 
-async function watch(page: Page, { url, maxPrice, placeOrder }: Settings): Promise<Outcome> {
+type WatchOptions = { interactive: boolean; timeoutMs: number | undefined };
+
+async function watch(
+	page: Page,
+	{ url, maxPrice, placeOrder }: Settings,
+	{ interactive, timeoutMs }: WatchOptions,
+): Promise<Outcome> {
+	const deadline = timeoutMs === undefined ? Infinity : Date.now() + timeoutMs;
+	// Playwright reads a timeout of 0 as "no limit".
+	const humanWaitMs = () => (deadline === Infinity ? 0 : Math.max(1, deadline - Date.now()));
 	for (;;) {
+		// The deadline is checked only between checks, never during checkout, so a
+		// timeout can't cut off an order after the place-order click.
+		if (Date.now() >= deadline) return { kind: "timed-out", afterMs: timeoutMs ?? 0 };
 		let waitMessage: string;
 		try {
 			await page.goto(url, { waitUntil: "domcontentloaded" });
 			const verdict = judge(await readSnapshot(page), maxPrice);
 			switch (verdict.kind) {
 				case "captcha":
-					await handleCaptcha(page, () =>
-						console.log(
-							`${BEEP}Amazon wants to check you are human. Type the characters in the Edge window.`,
-						),
+					await handleCaptcha(
+						page,
+						() => {
+							if (!interactive) {
+								throw new NeedsPerson(
+									"Amazon wants the characters of a captcha typed, and nobody is here to type them.",
+								);
+							}
+							console.log(
+								`${BEEP}Amazon wants to check you are human. Type the characters in the Edge window.`,
+							);
+						},
+						humanWaitMs(),
 					);
 					continue;
 				case "signed-out":
-					await signIn(page, () =>
-						console.log(
-							`${BEEP}Please sign in to Amazon in the Edge window. The bot waits for you.`,
-						),
+					if (!interactive) {
+						throw new NeedsPerson(
+							"The bot's Edge profile is not signed in to Amazon. Run amazon-bot once from a terminal, or by double-clicking it, and sign in.",
+						);
+					}
+					await signIn(
+						page,
+						() =>
+							console.log(
+								`${BEEP}Please sign in to Amazon in the Edge window. The bot waits for you.`,
+							),
+						humanWaitMs(),
 					);
 					status("Signed in.");
 					continue;
@@ -269,27 +315,50 @@ async function watch(page: Page, { url, maxPrice, placeOrder }: Settings): Promi
 				}
 			}
 		} catch (err) {
+			if (err instanceof NeedsPerson) throw err;
 			if (page.isClosed()) throw new BrowserClosed();
 			// Retrying is safe: Buy Now alone buys nothing, and checkout never throws
 			// after the place-order click.
 			const reason = err instanceof Error ? err.message.split("\n")[0] : String(err);
 			waitMessage = `Page problem (${reason}).`;
 		}
-		const wait = jitter(POLL_MS);
+		const wait = Math.max(0, Math.min(jitter(POLL_MS), deadline - Date.now()));
 		status(`${waitMessage} Checking again in ${Math.round(wait / 1000)}s.`);
 		await sleep(wait);
 	}
 }
 
-const outcomes: { [K in Outcome["kind"]]: (r: Outcome) => string } = {
-	ordered: (r) =>
-		`${BEEP}Order placed at ${r.price}! Check your email or Amazon orders for the confirmation.`,
-	unconfirmed: () =>
-		'The bot clicked "Place your order" but did not see the confirmation page.\n' +
-		"Check your Amazon orders before running the bot again, so you do not buy twice.",
-	"test-stopped": (r) =>
-		`Test run worked: it reached the "Place your order" button at ${r.price} and stopped. Nothing was bought.`,
-};
+// Prints how the run ended and returns the exit code: 0 means the run did its
+// job, 1 means it failed or needs a person, and 2 means --timeout ran out first.
+function report(result: Outcome): number {
+	switch (result.kind) {
+		case "ordered":
+			console.log(
+				`\n${BEEP}Order placed at ${result.price}! Check your email or Amazon orders for the confirmation.`,
+			);
+			return 0;
+		case "test-stopped":
+			console.log(
+				`\nTest run worked: it reached the "Place your order" button at ${result.price} and stopped. Nothing was bought.`,
+			);
+			return 0;
+		case "unconfirmed":
+			console.log(
+				'\nThe bot clicked "Place your order" but did not see the confirmation page.\n' +
+					"Check your Amazon orders before running the bot again, so you do not buy twice.",
+			);
+			return 1;
+		case "timed-out":
+			console.log(
+				`\nStopped after ${Math.round(result.afterMs / 1000)}s (--timeout) without buying anything.`,
+			);
+			return 2;
+		default: {
+			const unhandled: never = result;
+			return unhandled;
+		}
+	}
+}
 
 async function main(flags: Flags, interactive: boolean): Promise<Outcome> {
 	const settings = await resolveSettings(flags, interactive);
@@ -309,7 +378,7 @@ async function main(flags: Flags, interactive: boolean): Promise<Outcome> {
 	});
 	const page = context.pages()[0] ?? (await context.newPage());
 	await dismissOverlays(page);
-	return watch(page, settings);
+	return watch(page, settings, { interactive, timeoutMs: flags.timeoutMs });
 }
 
 async function waitForEnter() {
@@ -329,12 +398,13 @@ const interactive = flags.input && process.stdin.isTTY === true;
 // No top-level await: the exe bundle is CommonJS.
 void main(flags, interactive)
 	.then((result) => {
-		console.log("\n" + outcomes[result.kind](result));
-		process.exitCode = result.kind === "unconfirmed" ? 1 : 0;
+		process.exitCode = report(result);
 	})
 	.catch((err) => {
 		process.exitCode = 1;
-		if (err instanceof MissingMaxPrice) {
+		if (err instanceof NeedsPerson) {
+			console.error(`\nerror: ${err.message}`);
+		} else if (err instanceof MissingMaxPrice) {
 			console.error(
 				"error: --max-price is required with a --url other than the default when the bot cannot ask questions (no terminal, or --no-input).\n" +
 					"(run amazon-bot --help for usage)",

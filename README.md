@@ -56,8 +56,19 @@ amazon.com.
 Without a terminal, or with `--no-input`, the bot never asks. It uses the
 defaults listed by `--help`, and it does a dry run unless you pass
 `--no-dry-run`. The default price of 730 CAD applies only to the default
-product, so `--max-price` is required with any other `--url`. The bot exits
-with code 0 after an order or a finished dry run, and 1 otherwise.
+product, so `--max-price` is required with any other `--url`. If Amazon needs
+a person, for a sign-in or a typed CAPTCHA, the bot stops with a message
+instead of waiting, so sign in once from a terminal or by double-clicking the
+bot first.
+
+`--timeout <duration>` stops watching after that long, for example `30m` or
+`2h`. Without it the bot watches until it buys or you close the Edge window.
+
+| Exit code | Meaning                                                      |
+| --------- | ------------------------------------------------------------ |
+| 0         | An order was placed, or a dry run reached "Place your order" |
+| 1         | An error, an unconfirmed order, or Amazon needs a person     |
+| 2         | `--timeout` ran out before the bot bought anything           |
 
 The default product and price are `DEFAULT_URL` and `DEFAULT_MAX_PRICE` in
 `src/main.ts`.

@@ -10,10 +10,20 @@ export default defineConfig({
 		options: { typeAware: true, typeCheck: true },
 	},
 	test: {
+		teardownTimeout: 30_000,
 		projects: [
-			{ test: { name: "unit", include: ["test/amazon.test.ts"] } },
-			// Builds the exe and launches Edge, so it is too slow for every commit.
-			{ test: { name: "exe", include: ["test/exe.test.ts"] } },
+			{ test: { name: "unit", include: ["test/*.test.ts"], exclude: ["test/exe.test.ts"] } },
+			{
+				// Builds the exe and launches Edge, so it is too slow for every commit.
+				// Every test and hook has a deadline, so a stuck Edge fails the run
+				// instead of stalling it.
+				test: {
+					name: "exe",
+					include: ["test/exe.test.ts"],
+					testTimeout: 90_000,
+					hookTimeout: 180_000,
+				},
+			},
 		],
 	},
 	pack: {
