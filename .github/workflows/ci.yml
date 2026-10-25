@@ -24,22 +24,26 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
+    permissions: {}
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       sha: ${{ steps.release.outputs.sha }}
     steps:
+      - name: Require Release Please token
+        env:
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          if [[ -z "${RELEASE_PLEASE_TOKEN:-}" ]]; then
+            echo "::error::Set the RELEASE_PLEASE_TOKEN repository secret."
+            exit 1
+          fi
       - id: release
         # v5.0.0
         uses: >-
           googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7
         with:
-          # Use a PAT when release PRs need their own CI run.
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
   # ponytail: Full reruns skip drafts; add lookup if they become common.
   build:

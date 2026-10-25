@@ -161,8 +161,7 @@ For transient build or upload failures, use GitHub Actions to rerun only the
 failed jobs. A full workflow rerun will not resume an existing draft. If a code
 fix is needed, resolve the old draft and tag before the next release.
 
-To use `GITHUB_TOKEN` for Release Please, enable **Allow GitHub Actions to
-create and approve pull requests** in the repository settings. GitHub does not
-start workflows for pull requests created with `GITHUB_TOKEN`. Set a
-`RELEASE_PLEASE_TOKEN` Actions secret if branch protection requires CI checks
-on the release PR.
+Release Please requires the `RELEASE_PLEASE_TOKEN` Actions secret so GitHub runs
+CI for release PRs. Create a fine-grained token limited to this repository with
+read and write access to Contents, Issues, and Pull requests. The workflow fails
+before Release Please runs if the secret is missing.

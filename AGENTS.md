@@ -12,21 +12,14 @@ Amazon product page and buys the item at or under a price limit. The
   the polling loop.
 - The `pack` block in `vite.config.ts` builds the executable.
 
-## Verify on the Executable
+## Rules and Enforcement
 
-A passing `node src/main.ts` says nothing about the executable. It is a Node
-single-executable app whose `require` loads only built-in modules, so a
-dependency missing from `pack.deps.alwaysBundle` works under `node` and crashes
-the executable. After changing dependencies, options, prompts, or startup code,
-run `vp test --project exe`. It builds the executable and runs it from a
-temporary folder with its own `LOCALAPPDATA`. Add a case to `test/exe.test.ts`
-for new command-line or prompt behavior.
-
-Start the executable yourself only through the `verify-amazon-bot` skill's
-`run-exe.ps1`, which kills it and its Edge window after a deadline. Started any
-other way, the bot watches the page until a person stops it.
-
-## Money
-
-Test with dry runs only: pass `--dry-run`, or answer `no` at the real-order
-prompt. A real order charges the user's card, and an agent cannot undo it.
+| Rule                                                                                                                                         | Enforcement                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| After changing an Amazon selector, run `vp run probe <url>` against a live product page.                                                     | Manual probe; CI uses stand-in pages and cannot validate live Amazon selectors.                                            |
+| After changing dependencies, options, prompts, or startup code, run `vp test --project exe`; add CLI and prompt cases to `test/exe.test.ts`. | Windows CI runs `hk check --all --slow`, including the packaged executable tests.                                          |
+| Use bounded `run-exe.ps1` dry runs for verification; real orders charge the user's card and cannot be undone.                                | The runner isolates `LOCALAPPDATA`, kills the process tree, and rejects `--no-dry-run`; a packaged test checks that guard. |
+| Use Conventional Commit messages for PR titles and commits.                                                                                  | `hk.pkl` checks local commit messages; CI runs `scripts/check-conventional-commits.ps1` on PR titles and commit ranges.    |
+| Use Release Please for versioning; do not add alternate release files after bot comments.                                                    | `release-please-config.json` and `.release-please-manifest.json` are the version source of truth.                          |
+| Release Please PR checks require `RELEASE_PLEASE_TOKEN`.                                                                                     | `ci.yml` fails fast if the repository secret is missing.                                                                   |
+| Recover a failed release build or upload by rerunning failed jobs.                                                                           | `README.md` documents that full workflow reruns do not resume existing drafts.                                             |
