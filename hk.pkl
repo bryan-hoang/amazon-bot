@@ -1,15 +1,27 @@
 amends "package://github.com/jdx/hk/releases/download/v2.6.0/hk@2.6.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.6.0/hk@2.6.0#/Builtins.pkl"
 
-// Both commands cover the whole project rather than the changed files: type
-// checking and tests follow imports across files.
-steps {
+local full = new Mapping<String, Step> {
   ["vp-check"] {
     check = "pnpm exec vp check"
   }
+  ["all-tests"] {
+    check = "pnpm exec vp test"
+  }
+  ["jactionlint"] = Builtins.jactionlint
+}
+
+steps = (full) {
+  ["all-tests"] {
+    profiles = List("slow")
+  }
   ["unit-tests"] {
     check = "pnpm exec vp test --project unit"
+    profiles = List("!slow")
   }
 }
+
+exclude = List("CHANGELOG.md")
 
 hooks {
   // Check only: a commit never rewrites or stages files behind your back.
@@ -17,15 +29,10 @@ hooks {
     fix = false
     stash = false
   }
-  // The exe tests build the exe and launch Edge, which is too slow per commit.
-  ["pre-push"] {
+  ["pre-push"] { steps = full }
+  ["commit-msg"] {
     steps {
-      ["vp-check"] {
-        check = "pnpm exec vp check"
-      }
-      ["all-tests"] {
-        check = "pnpm exec vp test"
-      }
+      ["check-conventional-commit"] = Builtins.check_conventional_commit
     }
   }
 }
