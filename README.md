@@ -140,9 +140,9 @@ file or `mise.toml`. Run `hk install` again after adding or changing a Git hook.
 
 - Before each commit, `pre-commit` runs `vp check`, the unit tests, and
   `jactionlint` on staged workflow files.
-- The `commit-msg` hook enforces Conventional Commit format for local commits.
-  GitHub-created commits bypass the hook. Use a Conventional Commit PR title
-  for squash merges.
+- The local `commit-msg` hook checks commit messages. CI checks PR titles and
+  non-merge commits in pull requests and pushes to `main`, including
+  GitHub-created commits.
 - Before each push, `pre-push` runs `vp check` and every test. It also runs
   `jactionlint` for workflow files changed by the push.
 

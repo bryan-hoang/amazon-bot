@@ -22,11 +22,33 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.release-sha || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
         with:
           cache: ${{ inputs.release-sha == '' }}
           persist_github_token: false
+      - if: inputs.release-sha == ''
+        name: Check commit messages
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+          PUSH_HEAD_SHA: ${{ github.sha }}
+        run: |
+          if ($env:EVENT_NAME -eq 'pull_request') {
+            $baseSha = $env:PR_BASE_SHA
+            $headSha = $env:PR_HEAD_SHA
+          } else {
+            $baseSha = $env:PUSH_BASE_SHA
+            $headSha = $env:PUSH_HEAD_SHA
+          }
+          ./scripts/check-conventional-commits.ps1 `
+            -BaseSha $baseSha `
+            -HeadSha $headSha `
+            -PullRequestTitle $env:PR_TITLE
       - run: mise exec -- pnpm install --frozen-lockfile
       - run: mise exec -- hk check --all --slow
       - if: inputs.release-sha != ''

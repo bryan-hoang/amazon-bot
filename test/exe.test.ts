@@ -149,6 +149,60 @@ describe("verification wrapper", () => {
 	}, 15_000);
 });
 
+describe("commit message enforcement", () => {
+	const checker = join(root, "scripts/check-conventional-commits.ps1");
+	const check = (baseRef: string, headRef: string, title: string) => {
+		const baseSha = execFileSync("git", ["rev-parse", baseRef], {
+			cwd: root,
+			encoding: "utf8",
+		}).trim();
+		const headSha = execFileSync("git", ["rev-parse", headRef], {
+			cwd: root,
+			encoding: "utf8",
+		}).trim();
+		return spawnSync(
+			"pwsh",
+			[
+				"-NoProfile",
+				"-File",
+				checker,
+				"-BaseSha",
+				baseSha,
+				"-HeadSha",
+				headSha,
+				"-PullRequestTitle",
+				title,
+			],
+			{ cwd: root, encoding: "utf8" },
+		);
+	};
+
+	test("rejects a historical non-Conventional commit", () => {
+		const result = check("3db54c9^", "3db54c9", "ci: validate the PR title");
+		expect(result.status).not.toBe(0);
+		expect(`${result.stdout}${result.stderr}`).toContain("Invalid commit type");
+	}, 15_000);
+
+	test("accepts a Conventional commit and PR title", () => {
+		const result = check(
+			"95d2b9743eae7ef2653b6d70f863237694490567^",
+			"95d2b9743eae7ef2653b6d70f863237694490567",
+			"ci: validate commit messages",
+		);
+		expect(result.status).toBe(0);
+	}, 15_000);
+
+	test("rejects a non-Conventional PR title", () => {
+		const result = check(
+			"95d2b9743eae7ef2653b6d70f863237694490567^",
+			"95d2b9743eae7ef2653b6d70f863237694490567",
+			"Add commit message validation",
+		);
+		expect(result.status).not.toBe(0);
+		expect(`${result.stdout}${result.stderr}`).toContain("Invalid commit type");
+	}, 15_000);
+});
+
 describe("prompts in a terminal", () => {
 	function openTerminal(args: string[], settings?: object) {
 		const { env, settingsFile, profileDir } = appData(settings);
