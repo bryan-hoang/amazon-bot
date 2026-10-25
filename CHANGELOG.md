@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/bryan-hoang/amazon-bot/compare/v0.2.0...v0.2.1) (2026-10-25)
+
+
+### Bug Fixes
+
+* block real orders in verification runner ([4c2c56a](https://github.com/bryan-hoang/amazon-bot/commit/4c2c56aa3e63c469ade62f87d817cd8160d729fe))
+* block real orders in verification runner ([cf1f7fe](https://github.com/bryan-hoang/amazon-bot/commit/cf1f7fed94c2d0e3ba48821016f730acdfc5c9cc))
+
 ## [0.2.0](https://github.com/bryan-hoang/amazon-bot/compare/v0.1.0...v0.2.0) (2026-10-25)
 
 
