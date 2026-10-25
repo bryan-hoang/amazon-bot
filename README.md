@@ -95,16 +95,17 @@ vp check                      # format, lint, type check
 vp test                       # all tests: unit, then the built executable
 vp test --project unit        # unit tests only, under a second
 vp run probe --help           # check selectors against a live page
-vp pack                       # writes dist/amazon-bot.exe
+vp run build                  # package.json build script; writes dist/amazon-bot.exe
 ```
 
 Both the bot and the probe parse their options with
 [Commander](https://github.com/tj/commander.js), which also writes their
 `--help` text.
 
-`vp pack` builds the executable from the `pack` block in `vite.config.ts`.
-That block also inlines two JSON files playwright-core loads at runtime; if a
-playwright update moves them, the build fails and names the fix.
+The `build` script in `package.json` runs `vp pack` from the `pack` block in
+`vite.config.ts`. Both the executable tests and release build use this script.
+The pack block also inlines two JSON files used by playwright-core at runtime.
+If an update moves them, the build fails and names the fix.
 
 All Amazon page knowledge (selectors, checkout) lives in `src/amazon.ts`. When
 Amazon changes its pages, run the probe and fix the selectors there. The bot
@@ -122,7 +123,7 @@ through local stand-in pages that follow Amazon's passkey sign-in route, and
 check that the bot waits until the store shows the account as signed in. They
 need Edge but not the network.
 
-`test/exe.test.ts` holds the `exe` tests. They run `vp pack`, copy the
+`test/exe.test.ts` holds the `exe` tests. They run `vp run build`, copy the
 executable to a temporary folder, and run it there the way the user does. Each
 run gets its own `LOCALAPPDATA`, so your saved settings and Edge profile are
 never touched. They check the options and error messages, answer the prompts
@@ -140,9 +141,9 @@ file or `mise.toml`. Run `hk install` again after adding or changing a Git hook.
 
 - Before each commit, `pre-commit` runs `vp check`, the unit tests, and
   `jactionlint` on staged workflow files.
-- The `commit-msg` hook enforces Conventional Commit format for local commits.
-  GitHub-created commits bypass the hook. Use a Conventional Commit PR title
-  for squash merges.
+- The local `commit-msg` hook checks commit messages. CI checks PR titles and
+  non-merge commits in pull requests and pushes to `main`, including
+  GitHub-created commits.
 - Before each push, `pre-push` runs `vp check` and every test. It also runs
   `jactionlint` for workflow files changed by the push.
 
@@ -161,8 +162,7 @@ For transient build or upload failures, use GitHub Actions to rerun only the
 failed jobs. A full workflow rerun will not resume an existing draft. If a code
 fix is needed, resolve the old draft and tag before the next release.
 
-To use `GITHUB_TOKEN` for Release Please, enable **Allow GitHub Actions to
-create and approve pull requests** in the repository settings. GitHub does not
-start workflows for pull requests created with `GITHUB_TOKEN`. Set a
-`RELEASE_PLEASE_TOKEN` Actions secret if branch protection requires CI checks
-on the release PR.
+Release Please requires the `RELEASE_PLEASE_TOKEN` Actions secret so GitHub runs
+CI for release PRs. Create a fine-grained token limited to this repository with
+read and write access to Contents, Issues, and Pull requests. The workflow fails
+before Release Please runs if the secret is missing.

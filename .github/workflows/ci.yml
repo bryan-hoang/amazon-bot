@@ -24,32 +24,53 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
+    permissions: {}
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       sha: ${{ steps.release.outputs.sha }}
     steps:
+      - name: Require Release Please token
+        env:
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          if [[ -z "${RELEASE_PLEASE_TOKEN:-}" ]]; then
+            echo "::error::Set the RELEASE_PLEASE_TOKEN repository secret."
+            exit 1
+          fi
       - id: release
         # v5.0.0
         uses: >-
           googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7
         with:
-          # Use a PAT when release PRs need their own CI run.
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
   # ponytail: Full reruns skip drafts; add lookup if they become common.
   build:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
     permissions:
       contents: read
-    uses: ./.github/workflows/check.yml
-    with:
-      release-sha: ${{ needs.release-please.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.sha }}
+          persist-credentials: false
+      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+        with:
+          cache: false
+          persist_github_token: false
+      - run: mise exec -- pnpm install --frozen-lockfile
+      - run: mise exec -- pnpm run build
+      # v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: amazon-bot.exe
+          path: dist/amazon-bot.exe
+          if-no-files-found: error
+          overwrite: true
 
   publish:
     needs: [release-please, build]

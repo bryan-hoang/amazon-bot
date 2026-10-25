@@ -19,7 +19,7 @@ let runs = 0;
 // The exe runs from a folder outside the repo, the way the user runs it, so
 // anything it can only find through the repo's node_modules fails here.
 beforeAll(() => {
-	execFileSync(process.execPath, [join(root, "node_modules/vite-plus/bin/vp"), "pack"], {
+	execFileSync(process.execPath, [join(root, "node_modules/vite-plus/bin/vp"), "run", "build"], {
 		cwd: root,
 		stdio: "pipe",
 	});
@@ -134,6 +134,73 @@ describe("arguments", () => {
 		expect(["needs a person", "timed out"]).toContain(ending);
 		expect(() => readFileSync(settingsFile)).toThrow();
 	});
+});
+
+describe("verification wrapper", () => {
+	test("rejects real-order mode before running the executable", () => {
+		const runner = join(root, ".agents/skills/verify-amazon-bot/scripts/run-exe.ps1");
+		const result = spawnSync(
+			"pwsh",
+			["-NoProfile", "-File", runner, "-NoBuild", "--", "--no-dry-run"],
+			{ cwd: root, encoding: "utf8" },
+		);
+		expect(result.status).toBe(1);
+		expect(`${result.stderr}${result.stdout}`).toContain("refuses --no-dry-run");
+	}, 15_000);
+});
+
+describe("commit message enforcement", () => {
+	const checker = join(root, "scripts/check-conventional-commits.ps1");
+	const check = (baseRef: string, headRef: string, title: string) => {
+		const baseSha = execFileSync("git", ["rev-parse", baseRef], {
+			cwd: root,
+			encoding: "utf8",
+		}).trim();
+		const headSha = execFileSync("git", ["rev-parse", headRef], {
+			cwd: root,
+			encoding: "utf8",
+		}).trim();
+		return spawnSync(
+			"pwsh",
+			[
+				"-NoProfile",
+				"-File",
+				checker,
+				"-BaseSha",
+				baseSha,
+				"-HeadSha",
+				headSha,
+				"-PullRequestTitle",
+				title,
+			],
+			{ cwd: root, encoding: "utf8" },
+		);
+	};
+
+	test("rejects a historical non-Conventional commit", () => {
+		const result = check("3db54c9^", "3db54c9", "ci: validate the PR title");
+		expect(result.status).not.toBe(0);
+		expect(`${result.stdout}${result.stderr}`).toContain("Invalid commit type");
+	}, 15_000);
+
+	test("accepts a Conventional commit and PR title", () => {
+		const result = check(
+			"95d2b9743eae7ef2653b6d70f863237694490567^",
+			"95d2b9743eae7ef2653b6d70f863237694490567",
+			"ci: validate commit messages",
+		);
+		expect(result.status).toBe(0);
+	}, 15_000);
+
+	test("rejects a non-Conventional PR title", () => {
+		const result = check(
+			"95d2b9743eae7ef2653b6d70f863237694490567^",
+			"95d2b9743eae7ef2653b6d70f863237694490567",
+			"Add commit message validation",
+		);
+		expect(result.status).not.toBe(0);
+		expect(`${result.stdout}${result.stderr}`).toContain("Invalid commit type");
+	}, 15_000);
 });
 
 describe("prompts in a terminal", () => {
