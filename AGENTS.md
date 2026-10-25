@@ -11,6 +11,8 @@ Amazon product page and buys the item at or under a price limit. The
 - `src/main.ts` holds the command-line options, prompts, saved settings, and
   the polling loop.
 - The `pack` block in `vite.config.ts` builds the executable.
+- The `build` script in `package.json` runs `vp pack`; packaged executable tests
+  and release builds use that script.
 
 ## Rules and Enforcement
 

@@ -95,16 +95,17 @@ vp check                      # format, lint, type check
 vp test                       # all tests: unit, then the built executable
 vp test --project unit        # unit tests only, under a second
 vp run probe --help           # check selectors against a live page
-vp pack                       # writes dist/amazon-bot.exe
+vp run build                  # package.json build script; writes dist/amazon-bot.exe
 ```
 
 Both the bot and the probe parse their options with
 [Commander](https://github.com/tj/commander.js), which also writes their
 `--help` text.
 
-`vp pack` builds the executable from the `pack` block in `vite.config.ts`.
-That block also inlines two JSON files playwright-core loads at runtime; if a
-playwright update moves them, the build fails and names the fix.
+The `build` script in `package.json` runs `vp pack` from the `pack` block in
+`vite.config.ts`. Both the executable tests and release build use this script.
+The pack block also inlines two JSON files used by playwright-core at runtime.
+If an update moves them, the build fails and names the fix.
 
 All Amazon page knowledge (selectors, checkout) lives in `src/amazon.ts`. When
 Amazon changes its pages, run the probe and fix the selectors there. The bot
@@ -122,7 +123,7 @@ through local stand-in pages that follow Amazon's passkey sign-in route, and
 check that the bot waits until the store shows the account as signed in. They
 need Edge but not the network.
 
-`test/exe.test.ts` holds the `exe` tests. They run `vp pack`, copy the
+`test/exe.test.ts` holds the `exe` tests. They run `vp run build`, copy the
 executable to a temporary folder, and run it there the way the user does. Each
 run gets its own `LOCALAPPDATA`, so your saved settings and Edge profile are
 never touched. They check the options and error messages, answer the prompts

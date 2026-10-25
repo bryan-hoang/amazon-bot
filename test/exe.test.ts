@@ -19,7 +19,7 @@ let runs = 0;
 // The exe runs from a folder outside the repo, the way the user runs it, so
 // anything it can only find through the repo's node_modules fails here.
 beforeAll(() => {
-	execFileSync(process.execPath, [join(root, "node_modules/vite-plus/bin/vp"), "pack"], {
+	execFileSync(process.execPath, [join(root, "node_modules/vite-plus/bin/vp"), "run", "build"], {
 		cwd: root,
 		stdio: "pipe",
 	});
