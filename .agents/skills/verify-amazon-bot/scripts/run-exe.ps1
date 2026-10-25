@@ -22,6 +22,9 @@ for ($i = 0; $i -lt $args.Count; $i++) {
 		default { throw "unknown option '$($args[$i])'; put the bot's arguments after --" }
 	}
 }
+if ($BotArgs -match '^--no-dry-run(?:=|$)') {
+	throw "run-exe.ps1 refuses --no-dry-run because it can place a real order."
+}
 $repo = (Resolve-Path "$PSScriptRoot/../../../..").Path
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $evidence = Join-Path ([IO.Path]::GetTempPath()) "amazon-bot-evidence/$stamp"

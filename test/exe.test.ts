@@ -136,6 +136,19 @@ describe("arguments", () => {
 	});
 });
 
+describe("verification wrapper", () => {
+	test("rejects real-order mode before running the executable", () => {
+		const runner = join(root, ".agents/skills/verify-amazon-bot/scripts/run-exe.ps1");
+		const result = spawnSync(
+			"pwsh",
+			["-NoProfile", "-File", runner, "-NoBuild", "--", "--no-dry-run"],
+			{ cwd: root, encoding: "utf8" },
+		);
+		expect(result.status).toBe(1);
+		expect(`${result.stderr}${result.stdout}`).toContain("refuses --no-dry-run");
+	}, 15_000);
+});
+
 describe("prompts in a terminal", () => {
 	function openTerminal(args: string[], settings?: object) {
 		const { env, settingsFile, profileDir } = appData(settings);
