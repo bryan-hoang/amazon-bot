@@ -132,11 +132,37 @@ order.
 
 ### Git Hooks
 
-The [`hk`](https://hk.jdx.dev) tool runs the checks from `hk.pkl`, and
-`mise.toml` pins its version. Run `mise trust`, then `mise install`, then
-`hk install` once per clone.
+The [`hk`](https://hk.jdx.dev) tool runs the checks from `hk.pkl`. `mise.toml`
+pins `hk`, `pnpm`, `jactionlint`, and `shellcheck`. `.node-version` pins Node.
+Run `mise trust` and `mise trust .node-version`, then `mise install` and
+`hk install` once per clone. Run `mise install` again after changing a version
+file or `mise.toml`. Run `hk install` again after adding or changing a Git hook.
 
-- Before each commit: `vp check` and the unit tests.
-- Before each push: `vp check` and every test, including the executable tests.
+- Before each commit, `pre-commit` runs `vp check`, the unit tests, and
+  `jactionlint` on staged workflow files.
+- The `commit-msg` hook enforces Conventional Commit format for local commits.
+  GitHub-created commits bypass the hook. Use a Conventional Commit PR title
+  for squash merges.
+- Before each push, `pre-push` runs `vp check` and every test. It also runs
+  `jactionlint` for workflow files changed by the push.
 
 To skip the hooks once, set `HK=0` for that Git command.
+
+### CI and Releases
+
+Run `mise exec -- pnpm install --frozen-lockfile`, then
+`mise exec -- hk check --all --slow` to run the project checks locally.
+
+On a push to `main`, Release Please opens or updates a release PR. After you
+merge it, the workflow builds and tests the Windows executable from the release
+commit, adds it to a draft release, then publishes the release.
+
+For transient build or upload failures, use GitHub Actions to rerun only the
+failed jobs. A full workflow rerun will not resume an existing draft. If a code
+fix is needed, resolve the old draft and tag before the next release.
+
+To use `GITHUB_TOKEN` for Release Please, enable **Allow GitHub Actions to
+create and approve pull requests** in the repository settings. GitHub does not
+start workflows for pull requests created with `GITHUB_TOKEN`. Set a
+`RELEASE_PLEASE_TOKEN` Actions secret if branch protection requires CI checks
+on the release PR.
